@@ -1,0 +1,122 @@
+name: Deploy Honeywell Agent to Azure App Service (Windows Container)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+env:
+  REGISTRY: acr10112.azurecr.io
+  IMAGE_NAME: honeywell-agent
+  RESOURCE_GROUP: RG-cs-PCS-AZ-CR-10112
+  APP_NAME: Agentic-infra-insights
+  WEBSITES_PORT: 8000
+
+jobs:
+  build:
+    # Windows containers can ONLY be built on a Windows host.
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (Service Principal)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR via AAD
+        shell: pwsh
+        run: az acr login --name acr10112
+
+      - name: Build Windows container image
+        shell: pwsh
+        working-directory: ./agents/agent-orchestration
+        run: |
+          docker build `
+            -f Dockerfile.windows `
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest `
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} `
+            .
+
+      - name: Push Windows container image
+        shell: pwsh
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy:
+    needs: build
+    # Deploy job only runs Azure CLI — Linux runner is fine and faster than Windows.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set WEBSITES_PORT app setting
+        run: |
+          az webapp config appsettings set \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --settings WEBSITES_PORT=${{ env.WEBSITES_PORT }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.APP_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Verify deployment
+        run: |
+          # Windows containers cold-start in 3–5 min vs ~1 min for Linux.
+          sleep 180
+
+          STATUS=$(az webapp show \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "state" -o tsv)
+
+          if [ "$STATUS" = "Running" ]; then
+            echo "App is in Running state."
+          else
+            echo "App not running. Status: $STATUS"
+            exit 1
+          fi
+
+      - name: Health check
+        run: |
+          APP_URL=$(az webapp show \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "defaultHostName" -o tsv)
+
+          for i in $(seq 1 10); do
+            echo "Health check attempt $i/10..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://${APP_URL}/health" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health check passed."
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "Health check never returned 200. Container may still be initializing — check logs."
+          exit 1
+
+      - name: View recent logs
+        if: failure()
+        run: |
+          az webapp log tail \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --provider docker

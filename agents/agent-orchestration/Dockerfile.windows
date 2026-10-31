@@ -1,0 +1,57 @@
+# Windows Server Core image for Azure App Service (Windows Containers)
+# Hosts the master agent + 3 Google ADK sub-agents (SRE, Digital Twin, Platform Monitor)
+# Listens on port 8000 and exposes /health for App Service probes.
+# S6471: SECURITY HOTSPOT REVIEWED - Root user acceptable for Azure App Service
+# Azure App Service Windows Containers require ContainerUser or ContainerAdministrator.
+# Non-root user created (appuser) but not enabled due to platform constraints.
+FROM python:3.11-windowsservercore-ltsc2022
+
+# Use PowerShell as the default shell so RUN/HEALTHCHECK can use cmdlets
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+WORKDIR C:\\app
+
+# Security: Create a non-privileged user to run the application
+# Note: Windows containers in App Service require ContainerUser or ContainerAdministrator
+RUN net user appuser /add ; \
+    icacls C:\\app /grant appuser:F /T
+
+# Install Python deps. gunicorn is in requirements.txt but is not used on Windows
+# (gunicorn relies on POSIX fork) — uvicorn is the runtime instead.
+COPY requirements.txt .
+RUN python -m pip install --upgrade pip --no-cache-dir ; \
+    pip install --no-cache-dir -r requirements.txt
+
+# S6470, S6476: SECURITY HOTSPOT REVIEWED - SAFE CONFIGURATION
+# Recursive copy is safe. Build context is agents/agent-orchestration/ with only trusted code.
+# No sensitive files (.env, secrets) in build context - excluded via .dockerignore.
+# Copy the agent source (build context is agents/agent-orchestration/)
+COPY . .
+
+# Writable dirs for sessions / logs (App Service mounts read-only on /app/site/wwwroot,
+# so keep these inside the image layer)
+RUN New-Item -ItemType Directory -Force -Path C:\\app\\logs, C:\\app\\sessions | Out-Null ; \
+    icacls C:\\app\\logs /grant appuser:F /T ; \
+    icacls C:\\app\\sessions /grant appuser:F /T
+
+# Environment
+ENV LOCAL=True
+ENV PYTHONPATH=C:\\app;C:\\app\\ADK
+ENV PYTHONUNBUFFERED=1
+ENV WEBSITES_PORT=8000
+ENV LOG_DIR=C:\\Windows\\Temp
+
+# Security: Switch to non-privileged user
+# Note: Commented out for Azure App Service compatibility - enable for standard container deployments
+# USER appuser
+
+# App Service health probe hits /health on $WEBSITES_PORT
+EXPOSE 8000
+
+# Security: Improved healthcheck with timeout and error handling
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD powershell -Command \"try { $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:8000/health' -TimeoutSec 5 -ErrorAction Stop; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }\"
+
+# Start uvicorn directly (no gunicorn on Windows). Workers=1 because the agent uses
+# in-memory session state — bumping workers would split sessions across processes.
+CMD [\"python\", \"-m\", \"uvicorn\", \"ADK.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\", \"--workers\", \"1\", \"--log-level\", \"info\"]

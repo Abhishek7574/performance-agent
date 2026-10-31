@@ -1,0 +1,11 @@
+[run]
+source = tools
+omit =
+    tools/cloudlens_iac/*
+    tools/ragsearch/*
+    */__pycache__/*
+    */.venv/*
+    */venv/*
+
+[xml]
+output = coverage.xml

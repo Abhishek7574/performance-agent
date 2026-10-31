@@ -1,0 +1,53 @@
+# Main dependencies for Honeywell Multi-Service Architecture
+# Google ADK and LLM dependencies (let google-adk drive compatible versions)
+google-adk>=1.14.0
+google-genai>=0.1.0
+litellm>=1.0.0
+
+# Web server dependencies (compatible with google-adk)
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.4.0
+flask>=3.0.0
+
+# Additional dependencies
+aiofiles>=23.2.1
+python-multipart>=0.0.6
+
+# System monitoring dependencies
+psutil>=5.9.6
+
+# Data processing dependencies
+pandas>=2.1.0
+numpy>=1.25.0
+
+# Database and storage (sqlite3 is built-in, not a pip package)
+aiosqlite>=0.19.0
+pyodbc>=4.0.0
+
+# Logging and monitoring
+structlog>=23.2.0
+
+# Development and testing
+pytest>=7.4.0
+pytest-cov>=4.0.0
+httpx>=0.25.0
+
+# utility dependencies
+python-dotenv>=1.0.0
+requests>=2.31.0
+pyyaml>=6.0.2
+gunicorn>=21.2.0
+
+# MCP (Model Context Protocol) server — required for Azure Monitor MCP
+mcp>=1.0.0
+
+# Azure SDK dependencies for CloudLens IaC tool and Blob Log Reader
+azure-identity>=1.15.0
+azure-mgmt-resource>=23.0.0
+azure-mgmt-resourcegraph>=8.0.0
+azure-storage-blob>=12.0.0
+
+# Add any additional dependencies your services need
+# gzip and glob are built-in Python modules
+# os, sys, pathlib are built-in Python modules
