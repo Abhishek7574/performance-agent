@@ -283,3 +283,24 @@ performance-agent/
 - **Dual monitoring modes** — `PROD` (Azure Monitor APIs) and `local` (psutil) switchable via `MONITORING_MODE`
 - **Agentic Action Layer** — all infrastructure operations go through `action_executor.py` which maintains an audit log and allowlists dangerous Azure operations
 - **MCP protocol** — Azure Monitor exposed as a Model Context Protocol server, making it composable with other MCP-compatible agents
+
+## Testing
+
+The repository includes a `tests/` suite for the monitoring and tool components.
+
+```bash
+pytest
+```
+
+Tests that require cloud credentials or external services should be configured with safe development credentials and isolated test resources.
+
+## Limitations and operational considerations
+
+- Azure-dependent workflows require correctly scoped Azure credentials and configured resource identifiers.
+- Doppelio-based load testing requires an available Doppelio account and token.
+- The local monitoring mode is intended for development and does not replace production observability.
+- Generated infrastructure plans and operational recommendations should be reviewed before being applied.
+
+## Architecture documentation
+
+See [docs/architecture.md](docs/architecture.md) for the high-level data flow, component responsibilities, and security considerations.

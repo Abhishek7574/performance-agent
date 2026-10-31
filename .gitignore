@@ -27,6 +27,11 @@ Thumbs.db
 *.log
 honeywellotagent_debug.log
 
+# Test and coverage output
+.coverage
+coverage.xml
+htmlcov/
+
 # Sessions database
 sessions.db
 
